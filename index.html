@@ -469,7 +469,7 @@
         <div class="quote-grid">
           <div>
             <h2>Request a quick quote</h2>
-            <p class="intro">Fill this in and tap “Open in my email app” — it writes the email for you. Prefer to chat? Message us on WhatsApp or text. We reply during business hours, with no obligation.</p>
+            <p class="intro">Fill this in and send it — we’ll email you your quote within 24–48 business hours. Prefer to chat? Message us on WhatsApp or text. We reply during business hours, with no obligation.</p>
             <div class="direct">
               <div>✉️ Email: <a href="mailto:info@dimbrightideas.com">info@dimbrightideas.com</a></div>
               <div>💬 WhatsApp / Text: <a href="https://wa.me/14783820150" target="_blank" rel="noopener">(478) 382-0150</a></div>
@@ -481,11 +481,21 @@
             <div class="field-row">
               <div class="field">
                 <label for="f-name">Your name</label>
-                <input id="f-name" name="name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee" />
+                <input id="f-name" name="name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee" required />
               </div>
               <div class="field">
                 <label for="f-org">Business / organization <span class="opt">(optional)</span></label>
                 <input id="f-org" name="org" type="text" autocomplete="organization" placeholder="e.g. Lee Family Dental" />
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="f-email">Your email</label>
+                <input id="f-email" name="email" type="email" autocomplete="email" placeholder="e.g. jordan@example.com" required />
+              </div>
+              <div class="field">
+                <label for="f-phone">Phone <span class="opt">(optional)</span></label>
+                <input id="f-phone" name="phone" type="tel" autocomplete="tel" placeholder="e.g. (478) 555-0123" />
               </div>
             </div>
             <div class="field">
@@ -514,11 +524,17 @@
               <label for="f-notes">Anything else? <span class="opt">(colors, names, occasion…)</span></label>
               <textarea id="f-notes" name="notes" placeholder="e.g. Navy and gold, our logo on the tumblers, for our 12-person team at Christmas"></textarea>
             </div>
+            <div class="field">
+              <label for="f-logo">Your logo or design <span class="opt">(optional — images)</span></label>
+              <input id="f-logo" name="logo" type="file" accept="image/*" multiple />
+              <p class="upload-status" id="logoStatus" role="status" style="margin:6px 0 0;font-size:.85rem;"></p>
+            </div>
+            <div class="form-message" id="quoteMsg" role="status" style="display:none"></div>
             <div class="form-actions">
-              <button class="btn btn-amber" type="submit">Open in my email app →</button>
+              <button class="btn btn-amber" type="submit" id="quoteSubmitBtn">Send my quote request →</button>
               <button class="btn btn-ghost" type="button" id="waBtn" style="color:#fff;border-color:rgba(255,255,255,.5)">Send via WhatsApp instead</button>
             </div>
-            <p class="fineprint">This opens your own email or WhatsApp with the message ready — nothing is sent until you press send there.</p>
+            <p class="fineprint">Your request goes straight to us — we’ll reply within 24–48 business hours. Prefer WhatsApp? The button above opens a chat with your details ready instead.</p>
           </form>
         </div>
       </div>
@@ -557,6 +573,172 @@
     </main>
     <div class="toast" id="toast" role="status">Email copied — info@dimbrightideas.com</div>
 
+    <!-- Quote submissions: same system as Gift Planning (Firebase + Cloudinary + Apps Script + Pushover) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script>
+      (function(){
+        var firebaseConfig = {
+          apiKey: "AIzaSyAFh17kO3JE1CyuH9XrqWu19RvadSEFP20",
+          authDomain: "gift-planning-form.firebaseapp.com",
+          projectId: "gift-planning-form",
+          storageBucket: "gift-planning-form.firebasestorage.app",
+          messagingSenderId: "777169863477",
+          appId: "1:777169863477:web:2fd112b16b0982dc7c427c",
+          measurementId: "G-6XL7M7Z692"
+        };
+        var db = null;
+        try {
+          if (typeof firebase !== 'undefined') {
+            if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+          }
+        } catch (err) { console.error("Firebase init error:", err); }
+        var CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dpsmcu07f/image/upload";
+        var CLOUDINARY_PRESET = "gift_planning";
+        var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrk5yPmtqPmYs_HjBPnOJMJKg2Wnq90Z5WZeVUiEDeBcUglv-BBoBmK_CTnsA0F9KU1w/exec";
+        var PUSHOVER_USER_KEY = "ueb3ouifx46g56n7by3rfh198nmagb";
+        var PUSHOVER_APP_TOKEN = "az24xk23yyn69ej8v363ke5u92v834";
+        var uploadedLogoUrls = [];
+        var logoUploadPromise = null;
+
+        function sendToAppsScript(payload) {
+          fetch(APPS_SCRIPT_URL, {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          }).catch(function(err){ console.error("Apps Script error:", err); });
+        }
+        function triggerPushoverAlert(title, messageContent) {
+          var payload = new URLSearchParams();
+          payload.append("token", PUSHOVER_APP_TOKEN);
+          payload.append("user", PUSHOVER_USER_KEY);
+          payload.append("title", title);
+          payload.append("message", messageContent);
+          payload.append("sound", "cashregister");
+          fetch("https://api.pushover.net/1/messages.json", {
+            method: "POST",
+            body: payload,
+            headers: { "Content-Type": "application/x-www-form-urlencoded" }
+          })
+          .then(function(r){ return r.json(); })
+          .then(function(d){ console.log("Pushover notification dispatched:", d); })
+          .catch(function(err){ console.error("Pushover notification failed:", err); });
+        }
+        function showQuoteMessage(message, success) {
+          var box = document.getElementById('quoteMsg');
+          box.style.display = "block";
+          box.style.padding = "12px";
+          box.style.borderRadius = "6px";
+          box.style.marginTop = "12px";
+          if (success) {
+            box.style.background = "#e8f5e9";
+            box.style.color = "#2e7d32";
+            box.style.border = "1px solid #81c784";
+          } else {
+            box.style.background = "#ffebee";
+            box.style.color = "#c62828";
+            box.style.border = "1px solid #ef9a9a";
+          }
+          box.innerHTML = message;
+        }
+
+        var logoInput = document.getElementById('f-logo');
+        var logoStatus = document.getElementById('logoStatus');
+        if (logoInput) {
+          logoInput.addEventListener('change', function(){
+            var files = logoInput.files;
+            uploadedLogoUrls = [];
+            logoUploadPromise = null;
+            if (!files.length) { if (logoStatus) logoStatus.textContent = ""; return; }
+            if (logoStatus) logoStatus.textContent = "Uploading your logo/design...";
+            var uploads = [];
+            for (var i = 0; i < files.length; i++) {
+              (function(file){
+                var fd = new FormData();
+                fd.append('file', file);
+                fd.append('upload_preset', CLOUDINARY_PRESET);
+                uploads.push(fetch(CLOUDINARY_URL, { method: 'POST', body: fd })
+                  .then(function(r){ return r.json(); })
+                  .then(function(data){ if (data.secure_url) uploadedLogoUrls.push(data.secure_url); }));
+              })(files[i]);
+            }
+            logoUploadPromise = Promise.all(uploads);
+            logoUploadPromise.then(function(){
+              if (logoStatus) logoStatus.textContent = "\u2728 " + uploadedLogoUrls.length + " file(s) uploaded successfully!";
+            }).catch(function(err){
+              console.error("Cloudinary Upload Error:", err);
+              if (logoStatus) logoStatus.textContent = "Error uploading one or more files \u2014 you can still send the request.";
+            });
+          });
+        }
+
+        document.getElementById('quoteForm').addEventListener('submit', function(e){
+          e.preventDefault();
+          var btn = document.getElementById('quoteSubmitBtn');
+          var form = e.target;
+          if (!db) {
+            showQuoteMessage("<strong>Sorry \u2014 the form could not load.</strong><br>Please message us on WhatsApp instead and we will help you right away.", false);
+            return;
+          }
+          btn.innerText = "Sending\u2026";
+          btn.disabled = true;
+
+          var name = document.getElementById('f-name').value.trim();
+          var email = document.getElementById('f-email').value.trim();
+          var phone = document.getElementById('f-phone').value.trim();
+          var org = document.getElementById('f-org').value.trim();
+          var pkgSel = document.getElementById('f-package');
+          var pkg = pkgSel.value;
+          var qty = document.getElementById('f-qty').value.trim();
+          var date = document.getElementById('f-date').value;
+          var notes = document.getElementById('f-notes').value.trim();
+          var estimateEl = document.getElementById('estimate');
+          var estimate = estimateEl ? estimateEl.textContent.trim() : "";
+
+          var uploadSettled = logoUploadPromise ? logoUploadPromise.catch(function(){}) : Promise.resolve();
+          uploadSettled.then(function(){
+            var payload = {
+              timestamp: new Date().toISOString(),
+              customerName: name,
+              customerEmail: email,
+              customerPhone: phone,
+              companyName: org,
+              package: pkg,
+              quantity: qty,
+              dateNeeded: date,
+              estimate: estimate,
+              details: notes,
+              logoUrls: uploadedLogoUrls,
+              source: "Quote Request page",
+              status: "New Quote Request"
+            };
+            db.collection("quote_requests").add(payload)
+              .then(function(){
+                sendToAppsScript(payload);
+                triggerPushoverAlert("\ud83d\udca1 New Quote Request!", "From: " + name + "\nPackage: " + (pkg || "Not chosen") + "\nQty: " + (qty || "\u2014") + "\nCheck Firestore dashboard for details.");
+                showQuoteMessage("\u2728 <strong>Success! Your quote request has been sent.</strong><br><span style='font-weight:normal;font-size:.85rem;'>We\u2019ll email your quote to " + email + " within 24\u201348 business hours.</span>", true);
+                form.reset();
+                uploadedLogoUrls = [];
+                logoUploadPromise = null;
+                if (logoStatus) logoStatus.textContent = "";
+                var est = document.getElementById('estimate');
+                if (est) { est.classList.remove('show'); est.innerHTML = ''; }
+                btn.innerText = "Send my quote request \u2192";
+                btn.disabled = false;
+                setTimeout(function(){ var m = document.getElementById('quoteMsg'); if (m) m.style.display = "none"; }, 15000);
+              })
+              .catch(function(error){
+                showQuoteMessage("<strong>Submission failed</strong><br>" + (error && error.message ? error.message : "Please try again or message us on WhatsApp."), false);
+                console.error("Quote submission error:", error);
+                btn.innerText = "Send my quote request \u2192";
+                btn.disabled = false;
+              });
+          });
+        });
+      })();
+    </script>
     <script>
       (function(){
         var pkgSelect = document.getElementById('f-package');
@@ -602,6 +784,8 @@
         function buildMessage(){
           var name = document.getElementById('f-name').value.trim();
           var org = document.getElementById('f-org').value.trim();
+          var email = document.getElementById('f-email').value.trim();
+          var phone = document.getElementById('f-phone').value.trim();
           var pkg = pkgSelect.value;
           var qty = qtyInput.value.trim();
           var date = document.getElementById('f-date').value;
@@ -614,6 +798,8 @@
           if (qty) lines.push('Quantity: ' + qty);
           if (date) lines.push('Date needed: ' + date);
           if (org) lines.push('Business / organization: ' + org);
+          if (email) lines.push('Email: ' + email);
+          if (phone) lines.push('Phone: ' + phone);
           if (notes) { lines.push(''); lines.push('Details: ' + notes); }
           lines.push('');
           lines.push('Thank you,');
@@ -624,16 +810,7 @@
           };
         }
 
-        document.getElementById('quoteForm').addEventListener('submit', function(e){
-          e.preventDefault();
-          var msg = buildMessage();
-          var a = document.createElement('a');
-          a.href = 'mailto:info@dimbrightideas.com?subject=' + encodeURIComponent(msg.subject) + '&body=' + encodeURIComponent(msg.body);
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          showToast('Opening your email app…');
-        });
+        // Quote submit is handled by the quote-submission script above (Firebase + Cloudinary).
 
         document.getElementById('waBtn').addEventListener('click', function(){
           var msg = buildMessage();
